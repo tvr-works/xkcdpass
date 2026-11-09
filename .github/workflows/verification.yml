@@ -1,0 +1,202 @@
+name: Verification
+
+on:
+  workflow_call:
+    inputs:
+      artifact_version:
+        description: Release version; empty produces a development snapshot
+        default: ''
+        type: string
+    outputs:
+      artifact_name:
+        value: ${{ jobs.linux.outputs.artifact_name }}
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  GOTOOLCHAIN: local
+
+jobs:
+  linux:
+    name: Linux validation and archives
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 15
+    outputs:
+      artifact_name: ${{ steps.version.outputs.artifact_name }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - run: mkdir -p reports
+      - name: Select snapshot version
+        id: version
+        env:
+          REQUESTED_VERSION: ${{ inputs.artifact_version }}
+          SHA: ${{ github.sha }}
+        run: |
+          source ./scripts/release-version.sh
+          version="dev-${SHA}"
+          if [[ -n "${REQUESTED_VERSION}" ]]; then
+            validate_release_version "${REQUESTED_VERSION}"
+            version="${REQUESTED_VERSION}"
+          fi
+          {
+            echo "version=${version}"
+            echo "goreleaser_version=${version#v}"
+            echo "artifact_name=xkcdpass_${version}"
+          } >> "${GITHUB_OUTPUT}"
+      - name: Set up Go 1.27.3
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.27.3'
+      - name: Check Go formatting
+        run: |
+          unformatted="$(git ls-files -z -- '*.go' | xargs -0 gofmt -l)"
+          [[ -z "${unformatted}" ]] || { echo "${unformatted}" >&2; exit 1; }
+      - name: Test
+        run: go test -count=1 -json -coverprofile=reports/coverage.out ./... | tee reports/tests.json
+      - name: Test with the race detector
+        run: go test -count=1 -race ./... 2>&1 | tee reports/race.log
+      - name: Vet
+        run: go vet ./... 2>&1 | tee reports/vet.log
+      - name: Build documented source platforms
+        run: |
+          for target in darwin/amd64 linux/arm64 windows/amd64; do
+            GOOS="${target%/*}" GOARCH="${target#*/}" CGO_ENABLED=0 \
+              go build -o "${RUNNER_TEMP}/xkcdpass-${target%/*}-${target#*/}" ./cmd/xkcdpass
+          done
+      - name: Check vulnerabilities for both published targets
+        run: |
+          GOBIN="${RUNNER_TEMP}/tools" go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
+          for target in linux/amd64 darwin/arm64; do
+            GOOS="${target%/*}" GOARCH="${target#*/}" \
+              "${RUNNER_TEMP}/tools/govulncheck" ./... 2>&1 | tee "reports/vulnerabilities-${target%/*}.log"
+          done
+      - name: Lint shell scripts
+        run: shellcheck -x -P scripts .github/scripts/*.sh scripts/*.sh scripts/testdata/*.sh
+      - name: Install just 1.57.0
+        env:
+          JUST_SHA256: '45b548094283cb9739af8f13273b8cddeee869f5b4ef2bb631b1f311cb566155'
+          JUST_VERSION: '1.57.0'
+        run: |
+          archive="just-${JUST_VERSION}-x86_64-unknown-linux-musl.tar.gz"
+          archive_path="${RUNNER_TEMP}/${archive}"
+          install_dir="${RUNNER_TEMP}/just/bin"
+          mkdir -p "${install_dir}"
+          curl --proto '=https' --tlsv1.2 --fail --location --silent --show-error \
+            --output "${archive_path}" \
+            "https://github.com/casey/just/releases/download/${JUST_VERSION}/${archive}"
+          echo "${JUST_SHA256}  ${archive_path}" | sha256sum --check --strict
+          tar -xzf "${archive_path}" -C "${install_dir}" just
+          echo "${install_dir}" >> "${GITHUB_PATH}"
+      - name: Test release tooling without network writes
+        run: |
+          [[ "$(just --version)" == "just 1.57.0" ]]
+          ./scripts/test-release-commands.sh
+          ./scripts/test-publish-release.sh
+      - name: Build both published-target archives
+        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
+        env:
+          XKCDPASS_ARTIFACT_VERSION: ${{ steps.version.outputs.version }}
+          XKCDPASS_GORELEASER_VERSION: ${{ steps.version.outputs.goreleaser_version }}
+        with:
+          distribution: goreleaser
+          version: v2.17.1
+          args: release --snapshot --clean
+      - name: Verify archives and execute Linux binary
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: ./scripts/verify-distribution.sh "${VERSION}" 2>&1 | tee reports/archive-smoke.log
+      - name: Test rejection of invalid distributions
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: ./scripts/test-verify-distribution.sh "${VERSION}" dist
+      - name: Upload the archives tested by this run
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.version.outputs.artifact_name }}
+          path: |
+            dist/xkcdpass_${{ steps.version.outputs.version }}_darwin_arm64.tar.gz
+            dist/xkcdpass_${{ steps.version.outputs.version }}_linux_amd64.tar.gz
+            dist/checksums.txt
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+      - name: Save validation evidence
+        if: always() && !cancelled()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: verification-linux-${{ github.run_attempt }}
+          path: reports/
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Save packaging failure evidence
+        if: failure() && !cancelled()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: packaging-failure-${{ github.run_attempt }}
+          path: dist/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  minimum:
+    name: Minimum Go 1.26.0
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26.0'
+      - name: Verify the declared minimum without substitution
+        run: |
+          mkdir -p reports
+          [[ "$(go env GOVERSION)" == go1.26.0 ]]
+          [[ "$(awk '$1 == "go" {print $2}' go.mod)" == 1.26.0 ]]
+          go test -count=1 -json ./... | tee reports/minimum-tests.json
+          go build -o "${RUNNER_TEMP}/xkcdpass-minimum" ./cmd/xkcdpass
+      - name: Save minimum compiler failure evidence
+        if: failure() && !cancelled()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: minimum-failure-${{ github.run_attempt }}
+          path: reports/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  macos:
+    name: macOS archive execution
+    needs: linux
+    runs-on: blacksmith-6vcpu-macos-26
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ needs.linux.outputs.artifact_name }}
+          path: dist
+      - name: Verify the same archives and execute macOS binary
+        env:
+          VERSION: ${{ needs.linux.outputs.version }}
+        run: |
+          mkdir -p reports
+          ./scripts/verify-distribution.sh "${VERSION}" 2>&1 | tee reports/archive-smoke.log
+      - name: Save macOS execution evidence
+        if: always() && !cancelled()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: verification-macos-${{ github.run_attempt }}
+          path: reports/
+          if-no-files-found: ignore
+          retention-days: 7

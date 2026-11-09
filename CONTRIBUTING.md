@@ -32,9 +32,17 @@ These checks run as normal tests; you do not need to do anything special to enab
 
 ## Automated validation
 
-GitHub Actions automatically validates pull requests targeting `main` and pushes to `main`. The read-only CI workflow checks Go formatting, runs the regular and race-detector test suites, runs `go vet`, builds the command, lints the shell scripts, and tests both the maintainer commands and the release publisher's draft-reconciliation behavior.
+GitHub Actions validates pushes on every branch, pull requests targeting `main`, and manual CI runs. The reusable Verification workflow runs the full Linux suite with pinned Go 1.27.3, checks vulnerabilities for `linux/amd64` and `darwin/arm64` with pinned govulncheck, and tests the declared Go 1.26.0 minimum with `GOTOOLCHAIN=local`. Existing formatting, race, vet, ShellCheck, and mocked release-tooling checks remain enabled.
 
-CI does not create distribution archives, tags, releases, or Homebrew updates. Development distributions and source releases remain explicit, manually dispatched operations in the separate Distribution workflow, and Homebrew publication remains a separate maintainer checkpoint.
+Verification creates unsigned GoReleaser snapshot archives once on Linux. Linux and Apple Silicon macOS jobs execute those same uploaded archives, checking version, generation, help, invalid input, layout, and checksums. Source-only Intel macOS, ARM64 Linux, and Windows targets are cross-compiled. These compile checks do not establish native runtime compatibility. The macOS runner uses macOS 26; confirm macOS 13 separately before relying on the documented minimum OS.
+
+Blacksmith supplies the Ubuntu and Apple Silicon macOS runners. Test, race, vulnerability, and archive-smoke reports are retained for seven days; archives are retained for 14 days, and packaging failures also retain the available `dist` directory. These are workflow artifacts, not published releases. CI has read-only repository permissions and cannot publish tags, releases, or Homebrew updates.
+
+Manual Distribution runs invoke that same Verification workflow. A release cannot reach the existing environment approval until Linux, minimum-compiler, and macOS archive verification all succeed for that run's exact SHA. Homebrew publication remains a separate maintainer checkpoint.
+
+### Repository and Go module identity
+
+Repository operations use `tvr-works/xkcdpass`. The Go module and internal imports intentionally retain `github.com/tvanreenen/xkcdpass`: immutable historical tags declare that path, and versioned Go installs must agree with it. Changing the module would require a separate versioning and compatibility plan; the transfer alone does not authorize rewriting historical tags. Do not recreate the old GitHub repository name because doing so would break the transfer redirect used by direct module downloads. Test both proxy-backed and direct legacy-path installs when changing ownership or release tooling.
 
 ## Benchmarks and timing
 
@@ -81,7 +89,7 @@ gh workflow run distribution.yml --ref <branch-or-tag> -f operation=build
 
 The version input is not required in build mode and is ignored if supplied. When the run succeeds, download the `xkcdpass_dev-<commit-sha>` workflow artifact from its summary page. It contains the `darwin/arm64` and `linux/amd64` archives plus `checksums.txt`, and is retained for 14 days. With GitHub CLI, use `gh run download <run-id> --name xkcdpass_dev-<commit-sha>`.
 
-Use build mode as the release dry run: dispatch it from the intended `main` commit, confirm tests and vet pass, inspect both packaged binaries and `checksums.txt`, and confirm the smoke checks in the log. Release mode runs that same test, vet, GoReleaser build matrix, packaging, checksum, and smoke-check path again with the release version injected.
+Use build mode as the release dry run: dispatch it from the intended `main` commit, confirm tests and vet pass, inspect both packaged binaries and `checksums.txt`, and confirm the smoke checks in the log. Release mode runs that same full Verification workflow again with the release version injected.
 
 ### Publishing a release
 
@@ -114,12 +122,12 @@ Wait until the source release is published, then run the separate Homebrew check
 just publish-homebrew v1.2.3
 ```
 
-Replace the illustrative `v1.2.3` with the published source version. The command confirms that GitHub reports a published, non-draft `tvanreenen/xkcdpass` release for that tag, then dispatches `tvanreenen/homebrew-tap/.github/workflows/publish-package.yml` on the tap's `main` branch with `package=xkcdpass` and the version. It uses your existing GitHub CLI login; this repository stores no tap credential. The distribution workflow remains independent and never dispatches the tap workflow.
+Replace the illustrative `v1.2.3` with the published source version. The command confirms that GitHub reports a published, non-draft `tvr-works/xkcdpass` release for that tag, then dispatches `tvr-works/homebrew-tap/.github/workflows/publish-package.yml` on the tap's `main` branch with `package=xkcdpass` and the version. It uses your existing GitHub CLI login; this repository stores no tap credential. The distribution workflow remains independent and never dispatches the tap workflow.
 
 The tap verifies the published archives and `checksums.txt`, renders the formula change, runs the Homebrew checks, and opens or reuses its pull request. Follow the dispatched run with:
 
 ```sh
-gh run list --repo tvanreenen/homebrew-tap --workflow publish-package.yml
+gh run list --repo tvr-works/homebrew-tap --workflow publish-package.yml
 ```
 
 If the source release is still a draft or missing, finish or rerun `just release` and wait for publication before retrying the Homebrew command. If tap verification finds a problem in an immutable source release, publish a new version and dispatch that version instead. For a transient tap or Homebrew failure, rerun `just publish-homebrew` with the same published version; do not rebuild or edit the source release.

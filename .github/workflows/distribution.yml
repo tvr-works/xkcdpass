@@ -22,9 +22,9 @@ permissions:
   contents: read
 
 jobs:
-  build:
-    name: Test, build, and package
-    runs-on: ubuntu-24.04
+  request:
+    name: Validate distribution request
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     timeout-minutes: 15
     outputs:
       version: ${{ steps.distribution.outputs.version }}
@@ -82,57 +82,24 @@ jobs:
             echo "artifact_name=xkcdpass_${version}"
           } >> "${GITHUB_OUTPUT}"
 
-      - name: Set up Go 1.27.1
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          # go.mod declares the minimum; distributions use an exact patched compiler.
-          go-version: '1.27.1'
-
-      - name: Test
-        run: go test ./...
-
-      - name: Vet
-        run: go vet ./...
-
-      - name: Build and package supported platforms
-        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
-        env:
-          XKCDPASS_ARTIFACT_VERSION: ${{ steps.distribution.outputs.version }}
-          XKCDPASS_GORELEASER_VERSION: ${{ steps.distribution.outputs.goreleaser_version }}
-        with:
-          distribution: goreleaser
-          version: v2.17.1
-          # Snapshot mode packages the selected commit without requiring or publishing a tag.
-          args: release --snapshot --clean
-
-      - name: Verify packaged artifacts
-        env:
-          VERSION: ${{ steps.distribution.outputs.version }}
-        run: ./scripts/verify-distribution.sh "${VERSION}"
-
-      - name: Upload distribution artifacts
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: ${{ steps.distribution.outputs.artifact_name }}
-          path: |
-            dist/xkcdpass_${{ steps.distribution.outputs.version }}_darwin_arm64.tar.gz
-            dist/xkcdpass_${{ steps.distribution.outputs.version }}_linux_amd64.tar.gz
-            dist/checksums.txt
-          if-no-files-found: error
-          retention-days: 14
-          compression-level: 0
+  build:
+    name: Verify distribution
+    needs: request
+    uses: ./.github/workflows/verification.yml
+    with:
+      artifact_version: ${{ needs.request.outputs.version }}
 
   publish:
     name: Publish GitHub release
     if: inputs.operation == 'release'
-    needs: build
-    runs-on: ubuntu-24.04
+    needs: [request, build]
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     timeout-minutes: 10
     permissions:
       contents: write
     environment: release
     concurrency:
-      group: xkcdpass-release-${{ needs.build.outputs.version }}
+      group: xkcdpass-release-${{ needs.request.outputs.version }}
       queue: max
 
     steps:
@@ -151,6 +118,6 @@ jobs:
       - name: Reconcile draft assets and publish
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_VERSION: ${{ needs.build.outputs.version }}
+          RELEASE_VERSION: ${{ needs.request.outputs.version }}
           TARGET_SHA: ${{ github.sha }}
         run: ./.github/scripts/publish-release.sh "${RELEASE_VERSION}" "${TARGET_SHA}" "dist"

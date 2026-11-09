@@ -7,13 +7,13 @@ fail() {
   exit 1
 }
 
-if [[ $# -ne 1 ]]; then
-  fail "usage: $0 <version>"
+if [[ $# -lt 1 || $# -gt 2 ]]; then
+  fail "usage: $0 <version> [artifact-directory]"
 fi
 
 version="$1"
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-dist_dir="${repo_root}/dist"
+dist_dir="${2:-${repo_root}/dist}"
 binary_name="xkcdpass"
 archives=(
   "${binary_name}_${version}_darwin_arm64.tar.gz"
@@ -34,6 +34,11 @@ done
 [[ -f "${dist_dir}/checksums.txt" ]] ||
   fail "missing distribution checksum file: ${dist_dir}/checksums.txt"
 
+while IFS= read -r checksum_line || [[ -n "${checksum_line}" ]]; do
+  [[ "${checksum_line}" =~ ^[0-9a-f]{64}\ \ [0-9A-Za-z._+-]+$ ]] ||
+    fail "checksums.txt contains a malformed entry"
+done < "${dist_dir}/checksums.txt"
+
 (
   cd "${dist_dir}"
   if command -v sha256sum >/dev/null 2>&1; then
@@ -52,6 +57,9 @@ verify_dir="$(mktemp -d)"
 trap 'rm -rf "${verify_dir}"' EXIT
 for archive in "${archives[@]}"; do
   tar -C "${verify_dir}" -xzf "${dist_dir}/${archive}"
+  binary="${verify_dir}/${archive%.tar.gz}/${binary_name}"
+  [[ -f "${binary}" && ! -L "${binary}" && -x "${binary}" ]] ||
+    fail "archive must contain an executable regular file: ${archive}"
 done
 
 darwin_binary="${verify_dir}/${binary_name}_${version}_darwin_arm64/${binary_name}"
@@ -63,16 +71,15 @@ linux_description="$(file "${linux_binary}")"
 [[ "${linux_description}" == *"ELF 64-bit LSB executable, x86-64"* ]] ||
   fail "unexpected linux/amd64 binary format: ${linux_description}"
 
-case "$(go env GOOS)/$(go env GOARCH)" in
-  darwin/arm64)
+case "$(uname -s)/$(uname -m)" in
+  Darwin/arm64)
     smoke_binary="${darwin_binary}"
     ;;
-  linux/amd64)
+  Linux/x86_64)
     smoke_binary="${linux_binary}"
     ;;
   *)
-    echo "artifact execution smoke checks are not supported on this host"
-    exit 0
+    fail "artifact execution smoke checks are not supported on this host"
     ;;
 esac
 
@@ -83,3 +90,13 @@ actual_version="$("${smoke_binary}" --version)"
 generated="$("${smoke_binary}" --words 3 --separator /)"
 [[ "${generated}" =~ ^[a-z]+/[a-z]+/[a-z]+$ ]] ||
   fail "generation smoke check returned unexpected output: ${generated}"
+
+"${smoke_binary}" --help > "${verify_dir}/help.stdout" 2> "${verify_dir}/help.stderr"
+[[ ! -s "${verify_dir}/help.stdout" ]] || fail "help wrote unexpected stdout"
+grep -q 'Usage:' "${verify_dir}/help.stderr" || fail "help did not include usage"
+
+status=0
+"${smoke_binary}" --words 0 > "${verify_dir}/invalid.stdout" 2> "${verify_dir}/invalid.stderr" || status=$?
+[[ ${status} -eq 2 && ! -s "${verify_dir}/invalid.stdout" ]] || fail "invalid input did not fail with exit 2"
+grep -q 'words must be at least 1' "${verify_dir}/invalid.stderr" || fail "invalid input did not explain the error"
+echo "Verified ${version} archives and native $(uname -s)/$(uname -m) execution"
