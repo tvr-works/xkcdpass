@@ -100,7 +100,7 @@ add_remote_asset() {
 
 run_publisher() {
   local requested_version="$1"
-  GITHUB_REPOSITORY="tvanreenen/xkcdpass" \
+  GITHUB_REPOSITORY="tvr-works/xkcdpass" \
     MOCK_GH_FAIL_UPLOAD="${mock_fail_upload:-}" \
     MOCK_GH_LOG="${case_log}" \
     MOCK_GH_STATE_DIR="${case_state}" \

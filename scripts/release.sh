@@ -20,10 +20,10 @@ validate_release_version "${version}" || exit 1
 command -v gh >/dev/null 2>&1 || fail "gh CLI is required"
 
 gh workflow run distribution.yml \
-  --repo tvanreenen/xkcdpass \
+  --repo tvr-works/xkcdpass \
   --ref main \
   -f operation=release \
   -f version="${version}"
 
 echo "Dispatched the xkcdpass source release for ${version}."
-echo "Follow it with: gh run list --repo tvanreenen/xkcdpass --workflow distribution.yml"
+echo "Follow it with: gh run list --repo tvr-works/xkcdpass --workflow distribution.yml"

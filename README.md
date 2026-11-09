@@ -15,8 +15,7 @@ The comic is a simple lesson in information theory: what feels obscure is not al
 On supported published platforms, install with Homebrew:
 
 ```sh
-brew tap tvanreenen/tap
-brew install xkcdpass
+brew install tvr-works/tap/xkcdpass
 ```
 
 Published Homebrew release artifacts are currently available for:
@@ -33,6 +32,12 @@ For other platforms, build from source locally:
 ```sh
 go build -o xkcdpass ./cmd/xkcdpass
 ```
+
+The repository is maintained at [tvr-works/xkcdpass](https://github.com/tvr-works/xkcdpass).
+The Go module remains `github.com/tvanreenen/xkcdpass` to preserve compatibility
+with existing versions. For a versioned Go install, use
+`go install github.com/tvanreenen/xkcdpass/cmd/xkcdpass@v0.2.1`.
+The organization path is the repository location, not a replacement module path.
 
 ## Usage
 

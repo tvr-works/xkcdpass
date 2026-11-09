@@ -22,7 +22,7 @@ command -v gh >/dev/null 2>&1 || fail "gh CLI is required"
 release_details=""
 if ! release_details="$(
   gh release view "${version}" \
-    --repo tvanreenen/xkcdpass \
+    --repo tvr-works/xkcdpass \
     --json isDraft,tagName,url \
     --template '{{.tagName}}|{{.isDraft}}|{{.url}}{{"\n"}}'
 )"; then
@@ -35,12 +35,14 @@ IFS='|' read -r release_tag release_is_draft release_url <<< "${release_details}
 [[ "${release_is_draft}" == "false" ]] ||
   fail "xkcdpass release ${version} is still a draft"
 
+[[ "${release_url}" == "https://github.com/tvr-works/xkcdpass/releases/tag/${version}" ]] ||
+  fail "GitHub returned an unexpected canonical release URL"
 echo "Confirmed published source release: ${release_url}"
 gh workflow run publish-package.yml \
-  --repo tvanreenen/homebrew-tap \
+  --repo tvr-works/homebrew-tap \
   --ref main \
   -f package=xkcdpass \
   -f version="${version}"
 
 echo "Dispatched the Homebrew tap update for xkcdpass ${version}."
-echo "Follow it with: gh run list --repo tvanreenen/homebrew-tap --workflow publish-package.yml"
+echo "Follow it with: gh run list --repo tvr-works/homebrew-tap --workflow publish-package.yml"

@@ -54,7 +54,7 @@ printf '%s %s %s\n' "${1:-}" "${2:-}" "${3:-}" >> "${MOCK_GH_LOG}"
 if [[ "${1:-}" == "release" && "${2:-}" == "view" ]]; then
   [[ $# -eq 9 ]]
   [[ "$3" == "${MOCK_EXPECTED_VERSION:-v1.2.3}" ]]
-  [[ "$4" == "--repo" && "$5" == "tvanreenen/xkcdpass" ]]
+  [[ "$4" == "--repo" && "$5" == "tvr-works/xkcdpass" ]]
   [[ "$6" == "--json" && "$7" == "isDraft,tagName,url" ]]
   [[ "$8" == "--template" ]]
   [[ "$9" == '{{.tagName}}|{{.isDraft}}|{{.url}}{{"\n"}}' ]]
@@ -65,10 +65,10 @@ if [[ "${1:-}" == "release" && "${2:-}" == "view" ]]; then
       exit 1
       ;;
     draft)
-      printf '%s|true|https://github.com/tvanreenen/xkcdpass/releases/tag/%s\n' "$3" "$3"
+      printf '%s|true|https://github.com/tvr-works/xkcdpass/releases/tag/%s\n' "$3" "$3"
       ;;
     published)
-      printf '%s|false|https://github.com/tvanreenen/xkcdpass/releases/tag/%s\n' \
+      printf '%s|false|https://github.com/tvr-works/xkcdpass/releases/tag/%s\n' \
         "${MOCK_RELEASE_TAG:-$3}" "$3"
       ;;
     *)
@@ -79,13 +79,13 @@ elif [[ "${1:-}" == "workflow" && "${2:-}" == "run" ]]; then
   [[ $# -eq 11 ]]
   case "$3" in
     distribution.yml)
-      [[ "$4" == "--repo" && "$5" == "tvanreenen/xkcdpass" ]]
+      [[ "$4" == "--repo" && "$5" == "tvr-works/xkcdpass" ]]
       [[ "$6" == "--ref" && "$7" == "main" ]]
       [[ "$8" == "-f" && "$9" == "operation=release" ]]
       [[ "${10}" == "-f" && "${11}" == "version=${MOCK_EXPECTED_VERSION:-v1.2.3}" ]]
       ;;
     publish-package.yml)
-      [[ "$4" == "--repo" && "$5" == "tvanreenen/homebrew-tap" ]]
+      [[ "$4" == "--repo" && "$5" == "tvr-works/homebrew-tap" ]]
       [[ "$6" == "--ref" && "$7" == "main" ]]
       [[ "$8" == "-f" && "$9" == "package=xkcdpass" ]]
       [[ "${10}" == "-f" && "${11}" == "version=${MOCK_EXPECTED_VERSION:-v1.2.3}" ]]
