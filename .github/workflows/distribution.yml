@@ -67,10 +67,10 @@ jobs:
           source ./scripts/release-version.sh
 
           if [[ "${OPERATION}" == "build" ]]; then
-            version="dev-${SHA}"
+            version="$(distribution_version "" "${SHA}")"
           elif [[ "${OPERATION}" == "release" ]]; then
             validate_release_version "${RELEASE_VERSION}"
-            version="${RELEASE_VERSION}"
+            version="$(distribution_version "${RELEASE_VERSION}" "${SHA}")"
           else
             echo "unsupported distribution operation: ${OPERATION}" >&2
             exit 1
@@ -87,7 +87,7 @@ jobs:
     needs: request
     uses: ./.github/workflows/verification.yml
     with:
-      artifact_version: ${{ needs.request.outputs.version }}
+      artifact_version: ${{ inputs.operation == 'release' && needs.request.outputs.version || '' }}
 
   publish:
     name: Publish GitHub release

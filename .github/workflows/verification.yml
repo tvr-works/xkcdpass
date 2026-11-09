@@ -42,11 +42,7 @@ jobs:
           SHA: ${{ github.sha }}
         run: |
           source ./scripts/release-version.sh
-          version="dev-${SHA}"
-          if [[ -n "${REQUESTED_VERSION}" ]]; then
-            validate_release_version "${REQUESTED_VERSION}"
-            version="${REQUESTED_VERSION}"
-          fi
+          version="$(distribution_version "${REQUESTED_VERSION}" "${SHA}")"
           {
             echo "version=${version}"
             echo "goreleaser_version=${version#v}"

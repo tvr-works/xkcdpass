@@ -39,6 +39,18 @@ for version in "${invalid_versions[@]}"; do
   fi
 done
 
+# Manual build and ordinary CI select the same snapshot; release input remains
+# strict so accidentally forwarding a dev identifier cannot publish a release.
+sha=1111111111111111111111111111111111111111
+[[ "$(distribution_version "" "${sha}")" == "dev-${sha}" ]] || fail "build snapshot version is incorrect"
+[[ "$(distribution_version v1.2.3 "${sha}")" == v1.2.3 ]] || fail "release version is incorrect"
+if distribution_version "dev-${sha}" "${sha}" >/dev/null 2>&1; then
+  fail "snapshot identifier was accepted as a release input"
+fi
+if distribution_version "" not-a-sha >/dev/null 2>&1; then
+  fail "invalid snapshot commit was accepted"
+fi
+
 test_dir="$(mktemp -d)"
 trap 'rm -rf "${test_dir}"' EXIT
 mkdir "${test_dir}/bin"

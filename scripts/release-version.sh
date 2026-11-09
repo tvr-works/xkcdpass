@@ -11,3 +11,16 @@ validate_release_version() {
     return 1
   fi
 }
+
+# An empty release version selects a development snapshot for the exact commit.
+distribution_version() {
+  local requested_version="$1"
+  local sha="$2"
+  [[ "${sha}" =~ ^[0-9a-f]{40}$ ]] || { echo "invalid distribution commit" >&2; return 1; }
+  if [[ -z "${requested_version}" ]]; then
+    printf 'dev-%s\n' "${sha}"
+  else
+    validate_release_version "${requested_version}" || return 1
+    printf '%s\n' "${requested_version}"
+  fi
+}
